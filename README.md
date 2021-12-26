@@ -1,6 +1,6 @@
 - 👋 Hi, I’m @CarlosAlbertoDev
-- 👀 I’m interested in Java, PHP, .Net, Phyton
-- 🌱 I’m currently learning .Net
+- 👀 I’m interested in Html, Css, Javascript, VBA
+- 🌱 I’m currently learning Javascript
 - 💞️ I’m looking to collaborate on
 - 📫 How to reach me 85-99958-5892
 
