@@ -18,6 +18,19 @@ android {
         vectorDrawables.useSupportLibrary = true
     }
 
+    signingConfigs {
+        getByName("debug") {
+            // Chave de debug fixa e versionada: sem isso, cada build no GitHub Actions
+            // gera uma chave nova (não há keystore persistido entre execuções), e o
+            // Android recusa instalar por cima do app já instalado com outra assinatura
+            // ("conflito com um pacote já existente").
+            storeFile = file("../debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -25,6 +38,7 @@ android {
         }
         debug {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
