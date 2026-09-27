@@ -9,9 +9,14 @@ data class PassoNavegacao(
     val localizacaoManobra: Coordenada
 )
 
-/** O trajeto até a PRÓXIMA parada apenas — nunca a rota inteira de uma vez. */
-data class NavegacaoLeg(
-    val geometria: List<Coordenada>,
-    val passos: List<PassoNavegacao>,
-    val distanciaTotalMetros: Double
+/**
+ * Rota completa passando por TODAS as paradas pendentes em ordem — para desenhar o
+ * traçado inteiro no mapa, como o modo "vários destinos" do Google Maps — junto com as
+ * instruções de manobra separadas por perna (uma lista de passos por trecho entre duas
+ * paradas consecutivas). [passosPorPerna][0] é sempre a perna sendo navegada agora, da
+ * posição atual até a próxima parada.
+ */
+data class RotaMultiParada(
+    val geometriaCompleta: List<Coordenada>,
+    val passosPorPerna: List<List<PassoNavegacao>>
 )

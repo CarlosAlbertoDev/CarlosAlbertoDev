@@ -7,8 +7,8 @@ import java.util.Locale
 /**
  * Usa um servidor OSRM (público ou auto-hospedado) para obter custo seguindo o grafo
  * real das ruas — a única forma de "avaliar o fluxo da rua" (mão única, necessidade de
- * contorno) mencionada no pedido original — e, separadamente, instruções de navegação
- * passo a passo (virar à direita/esquerda) para a perna até a PRÓXIMA parada.
+ * contorno) mencionada no pedido original — e o traçado completo por todas as paradas,
+ * com instruções de manobra separadas por perna para a navegação passo a passo.
  */
 class OsrmRoutingProvider(private val osrmApi: OsrmApi) : RoutingProvider {
 
@@ -27,27 +27,31 @@ class OsrmRoutingProvider(private val osrmApi: OsrmApi) : RoutingProvider {
     }.getOrNull()
 
     /**
-     * Rota + instruções de manobra apenas entre [origem] e [destino] — nunca a rota
-     * inteira com todas as paradas de uma vez, para o app se comportar como um GPS
-     * normal (uma parada de cada vez) em vez de desenhar um trajeto único emendado.
+     * Rota passando por TODAS as paradas em [pontosEmOrdem] (origem + paradas na ordem já
+     * decidida pelo otimizador), com geometria completa para desenhar o traçado inteiro no
+     * mapa — como o modo "vários destinos" do Google Maps — e instruções de manobra
+     * separadas por perna, para a navegação continuar sendo feita passo a passo.
      */
-    suspend fun calcularInstrucoes(origem: Coordenada, destino: Coordenada): NavegacaoLeg? = runCatching {
-        val resposta = osrmApi.calcularRota(formatarCoordenadas(listOf(origem, destino)))
+    suspend fun calcularRotaMultiParada(pontosEmOrdem: List<Coordenada>): RotaMultiParada? = runCatching {
+        if (pontosEmOrdem.size < 2) return@runCatching null
+        val resposta = osrmApi.calcularRota(formatarCoordenadas(pontosEmOrdem))
         if (resposta.code != "Ok") return@runCatching null
         val rota = resposta.routes?.firstOrNull() ?: return@runCatching null
         val geometria = rota.geometry?.coordinates?.map { par -> Coordenada(latitude = par[1], longitude = par[0]) }
             ?: return@runCatching null
 
-        val passos = rota.legs.orEmpty().flatMap { it.steps.orEmpty() }.mapNotNull { passo ->
-            val local = passo.maneuver?.location?.takeIf { it.size == 2 } ?: return@mapNotNull null
-            PassoNavegacao(
-                instrucao = traduzirManobra(passo.maneuver.type, passo.maneuver.modifier, passo.name),
-                distanciaMetros = passo.distance,
-                localizacaoManobra = Coordenada(latitude = local[1], longitude = local[0])
-            )
+        val passosPorPerna = rota.legs.orEmpty().map { perna ->
+            perna.steps.orEmpty().mapNotNull { passo ->
+                val local = passo.maneuver?.location?.takeIf { it.size == 2 } ?: return@mapNotNull null
+                PassoNavegacao(
+                    instrucao = traduzirManobra(passo.maneuver.type, passo.maneuver.modifier, passo.name),
+                    distanciaMetros = passo.distance,
+                    localizacaoManobra = Coordenada(latitude = local[1], longitude = local[0])
+                )
+            }
         }
 
-        NavegacaoLeg(geometria = geometria, passos = passos, distanciaTotalMetros = rota.distance)
+        RotaMultiParada(geometriaCompleta = geometria, passosPorPerna = passosPorPerna)
     }.getOrNull()
 
     private fun traduzirManobra(tipo: String?, modificador: String?, nomeRua: String?): String {

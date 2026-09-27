@@ -122,7 +122,7 @@ fun MapaScreen(viewModel: MapaViewModel = viewModel()) {
 @Composable
 private fun CartaoInstrucao(estado: MapaUiState, modifier: Modifier = Modifier) {
     val navegacao = estado.navegacaoAtual ?: return
-    val passoAtual = navegacao.leg.passos.getOrNull(estado.indicePassoAtual)
+    val passoAtual = navegacao.passosDaPernaAtual.getOrNull(estado.indicePassoAtual)
 
     Card(
         modifier = modifier,
@@ -282,9 +282,10 @@ private fun MapaOsm(estado: MapaUiState, aoClicarParada: (ParadaEntity) -> Unit)
             mapView.controller.animateTo(GeoPoint(local.latitude, local.longitude))
         }
 
-        // Só a perna até a PRÓXIMA parada — nunca a rota inteira emendada de uma vez.
+        // Traçado completo por todas as paradas pendentes, como o modo de vários destinos
+        // do Google Maps; sem internet, cai para uma linha reta só até a próxima parada.
         val proximaParada = estado.paradasAtivas.firstOrNull()
-        val pontosRota = estado.navegacaoAtual?.leg?.geometria?.map { GeoPoint(it.latitude, it.longitude) }
+        val pontosRota = estado.navegacaoAtual?.geometriaCompleta?.map { GeoPoint(it.latitude, it.longitude) }
             ?: estado.localizacaoAtual?.let { local ->
                 proximaParada?.takeIf { it.latitude != null && it.longitude != null }?.let { parada ->
                     listOf(GeoPoint(local.latitude, local.longitude), GeoPoint(parada.latitude!!, parada.longitude!!))

@@ -10,11 +10,17 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
 
-/** Navegação passo a passo até a parada que está no topo da fila — nunca a rota inteira. */
+/**
+ * Estado de navegação atual: o traçado completo passando por todas as paradas pendentes
+ * (para o mapa mostrar a rota inteira, como o modo de vários destinos do Google Maps) e,
+ * separadamente, as instruções de manobra só da perna sendo percorrida agora — a
+ * navegação passo a passo continua olhando uma parada de cada vez, como um GPS normal.
+ */
 data class NavegacaoAtual(
     val paradaId: Long,
     val endereco: String,
-    val leg: NavegacaoLeg
+    val geometriaCompleta: List<Coordenada>,
+    val passosDaPernaAtual: List<PassoNavegacao>
 )
 
 /**
@@ -52,20 +58,24 @@ class RouteCoordinator(
         paradaRepository.observarAtivas().first().sortedBy { it.ordemNaRota ?: Int.MAX_VALUE }
 
     /**
-     * Instruções de navegação (virar à direita/esquerda etc.) só até a parada que está
-     * no topo da fila — do jeito que um GPS normal funciona, uma parada de cada vez, em
-     * vez de desenhar a rota inteira com todas as paradas emendadas de uma só vez.
+     * Traçado completo por todas as paradas pendentes (mapa, tipo Google Maps com vários
+     * destinos) + instruções de manobra da perna atual (banner de navegação, tipo GPS).
      */
-    suspend fun calcularNavegacaoParaProximaParada(origemAtual: Coordenada): NavegacaoAtual? {
-        val proxima = paradasOrdenadas().firstOrNull() ?: return null
-        val latitude = proxima.latitude ?: return null
-        val longitude = proxima.longitude ?: return null
+    suspend fun calcularNavegacaoCompleta(origemAtual: Coordenada): NavegacaoAtual? {
+        val ordenadas = paradasOrdenadas().filter { it.latitude != null && it.longitude != null }
+        val primeira = ordenadas.firstOrNull() ?: return null
 
+        val pontos = listOf(origemAtual) + ordenadas.map { Coordenada(it.latitude!!, it.longitude!!) }
         val osrmUrl = settingsRepository.osrmBaseUrl.first()
         val provedor = OsrmRoutingProvider(NetworkModule.criarOsrmApi(osrmUrl))
-        val leg = provedor.calcularInstrucoes(origemAtual, Coordenada(latitude, longitude)) ?: return null
+        val rota = provedor.calcularRotaMultiParada(pontos) ?: return null
 
-        return NavegacaoAtual(paradaId = proxima.id, endereco = proxima.enderecoCompleto, leg = leg)
+        return NavegacaoAtual(
+            paradaId = primeira.id,
+            endereco = primeira.enderecoCompleto,
+            geometriaCompleta = rota.geometriaCompleta,
+            passosDaPernaAtual = rota.passosPorPerna.firstOrNull().orEmpty()
+        )
     }
 
     /**

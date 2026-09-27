@@ -30,7 +30,7 @@ data class MapaUiState(
     val paradasFalhas: List<ParadaEntity> = emptyList(),
     val paradasEntregues: List<ParadaEntity> = emptyList(),
     val localizacaoAtual: Coordenada? = null,
-    // Navegação só até a PRÓXIMA parada (como um GPS normal) — nunca a rota inteira de uma vez.
+    // Traçado completo (todas as paradas) para o mapa + instruções passo a passo da perna atual.
     val navegacaoAtual: NavegacaoAtual? = null,
     val indicePassoAtual: Int = 0,
     val distanciaAteProximaManobraMetros: Double? = null,
@@ -98,7 +98,7 @@ class MapaViewModel : ViewModel() {
     private suspend fun atualizarNavegacaoAposRecalculo(resultado: ResultadoRota?) {
         val origem = _uiState.value.localizacaoAtual
         val navegacao = if (resultado != null && origem != null) {
-            routeCoordinator.calcularNavegacaoParaProximaParada(origem)
+            routeCoordinator.calcularNavegacaoCompleta(origem)
         } else {
             null
         }
@@ -114,7 +114,7 @@ class MapaViewModel : ViewModel() {
 
     private fun avaliarProgressoDaManobra(localizacao: Coordenada) {
         val estado = _uiState.value
-        val passos = estado.navegacaoAtual?.leg?.passos ?: return
+        val passos = estado.navegacaoAtual?.passosDaPernaAtual ?: return
         if (estado.indicePassoAtual >= passos.size) return
 
         val manobra = passos[estado.indicePassoAtual].localizacaoManobra
@@ -136,7 +136,7 @@ class MapaViewModel : ViewModel() {
      * de esperar o próximo recálculo periódico.
      */
     private fun avaliarSeSaiuDaRota(localizacao: Coordenada) {
-        val geometria = _uiState.value.navegacaoAtual?.leg?.geometria
+        val geometria = _uiState.value.navegacaoAtual?.geometriaCompleta
         if (geometria.isNullOrEmpty()) return
 
         val distanciaMinima = geometria.minOf {
