@@ -33,12 +33,10 @@ class RouteOptimizer(
         }
 
         val pontos = listOf(origem) + paradas
-        var matriz = provedorPrincipal.matrizDeCusto(pontos)
-        var usandoReserva = false
-        if (matriz == null) {
-            matriz = provedorReserva.matrizDeCusto(pontos)
-            usandoReserva = true
-        }
+        val matrizPrincipal = provedorPrincipal.matrizDeCusto(pontos)
+        val usandoReserva = matrizPrincipal == null
+        val matriz = matrizPrincipal ?: provedorReserva.matrizDeCusto(pontos)
+            ?: error("Não foi possível calcular a matriz de distâncias, nem mesmo em modo offline")
 
         val ordemInicial = construirPorVizinhoMaisProximo(matriz, paradas.size)
         val ordemFinal = refinarComDoisOpt(ordemInicial, matriz)
