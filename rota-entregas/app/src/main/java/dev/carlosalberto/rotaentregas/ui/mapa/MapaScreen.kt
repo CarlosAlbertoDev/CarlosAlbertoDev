@@ -235,6 +235,11 @@ private fun MapaOsm(estado: MapaUiState, aoClicarParada: (ParadaEntity) -> Unit)
     val mapView = remember {
         MapView(contexto).apply {
             setMultiTouchControls(true)
+            // Os botões +/- nativos do osmdroid ficam mal posicionados quando o
+            // tamanho do mapa muda dinamicamente (ex.: aviso de "sem internet"
+            // aparecendo/sumindo) e acabam sobrepondo o texto de resumo abaixo do
+            // mapa; o gesto de pinça (já habilitado acima) cobre a mesma função.
+            zoomController.setVisibility(org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER)
             controller.setZoom(16.0)
         }
     }
@@ -285,7 +290,8 @@ private fun MapaOsm(estado: MapaUiState, aoClicarParada: (ParadaEntity) -> Unit)
         estado.localizacaoAtual?.let { local ->
             val marcadorUsuario = Marker(mapView).apply {
                 position = GeoPoint(local.latitude, local.longitude)
-                icon = MarcadorFactory.criarPino(contexto, MarcadorFactory.COR_USUARIO, tamanhoDp = 28)
+                icon = MarcadorFactory.criarSetaDirecao(contexto, MarcadorFactory.COR_USUARIO)
+                rotation = local.direcaoGraus
                 title = "Você está aqui"
             }
             mapView.overlays.add(marcadorUsuario)

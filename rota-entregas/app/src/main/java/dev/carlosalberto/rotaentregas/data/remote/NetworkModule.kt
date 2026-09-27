@@ -20,8 +20,10 @@ object NetworkModule {
     }
 
     private val clienteHttp = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        // Uma rota OSRM com muitas paradas (dezenas) pode demorar bem mais que uma
+        // consulta simples de CEP/geocodificação para ser calculada e devolvida.
+        .readTimeout(40, TimeUnit.SECONDS)
         .addInterceptor(UserAgentInterceptor())
         .build()
 

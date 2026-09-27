@@ -64,11 +64,18 @@ class RouteCoordinator(
     suspend fun calcularNavegacaoCompleta(origemAtual: Coordenada): NavegacaoAtual? {
         val ordenadas = paradasOrdenadas().filter { it.latitude != null && it.longitude != null }
         val primeira = ordenadas.firstOrNull() ?: return null
+        val coordenadaPrimeira = Coordenada(primeira.latitude!!, primeira.longitude!!)
 
-        val pontos = listOf(origemAtual) + ordenadas.map { Coordenada(it.latitude!!, it.longitude!!) }
         val osrmUrl = settingsRepository.osrmBaseUrl.first()
         val provedor = OsrmRoutingProvider(NetworkModule.criarOsrmApi(osrmUrl))
-        val rota = provedor.calcularRotaMultiParada(pontos) ?: return null
+
+        val pontosCompletos = listOf(origemAtual) + ordenadas.map { Coordenada(it.latitude!!, it.longitude!!) }
+        // Com muitas paradas, calcular o traçado inteiro de uma vez pode ser lento ou
+        // falhar (timeout no servidor OSRM). Nesse caso, cai para só a perna atual —
+        // melhor ter instrução de navegação sem o traçado completo do que não ter nada.
+        val rota = provedor.calcularRotaMultiParada(pontosCompletos)
+            ?: provedor.calcularRotaMultiParada(listOf(origemAtual, coordenadaPrimeira))
+            ?: return null
 
         return NavegacaoAtual(
             paradaId = primeira.id,

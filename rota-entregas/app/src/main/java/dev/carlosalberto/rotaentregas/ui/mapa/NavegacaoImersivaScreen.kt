@@ -178,6 +178,7 @@ private fun MapaNavegacaoImersiva(estado: MapaUiState) {
     val mapView = remember {
         MapView(contexto).apply {
             setMultiTouchControls(false)
+            zoomController.setVisibility(org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER)
             controller.setZoom(18.5)
         }
     }
@@ -212,24 +213,37 @@ private fun MapaNavegacaoImersiva(estado: MapaUiState) {
                 )
             }
 
-        estado.paradasAtivas.firstOrNull()?.let { proxima ->
-            val lat = proxima.latitude
-            val lon = proxima.longitude
-            if (lat != null && lon != null) {
-                mapView.overlays.add(
-                    Marker(mapView).apply {
-                        position = GeoPoint(lat, lon)
-                        icon = MarcadorFactory.criarPino(contexto, MarcadorFactory.COR_PROXIMA, rotulo = "1")
-                    }
-                )
-            }
+        estado.paradasAtivas.forEachIndexed { indice, parada ->
+            val lat = parada.latitude ?: return@forEachIndexed
+            val lon = parada.longitude ?: return@forEachIndexed
+            val cor = if (indice == 0) MarcadorFactory.COR_PROXIMA else MarcadorFactory.COR_PENDENTE
+            mapView.overlays.add(
+                Marker(mapView).apply {
+                    position = GeoPoint(lat, lon)
+                    icon = MarcadorFactory.criarPino(contexto, cor, rotulo = "${indice + 1}")
+                }
+            )
+        }
+
+        estado.paradasFalhas.forEach { parada ->
+            val lat = parada.latitude ?: return@forEach
+            val lon = parada.longitude ?: return@forEach
+            mapView.overlays.add(
+                Marker(mapView).apply {
+                    position = GeoPoint(lat, lon)
+                    icon = MarcadorFactory.criarPino(contexto, MarcadorFactory.COR_FALHOU)
+                }
+            )
         }
 
         estado.localizacaoAtual?.let { local ->
             mapView.overlays.add(
                 Marker(mapView).apply {
                     position = GeoPoint(local.latitude, local.longitude)
-                    icon = MarcadorFactory.criarPino(contexto, MarcadorFactory.COR_USUARIO, tamanhoDp = 30)
+                    icon = MarcadorFactory.criarSetaDirecao(contexto, MarcadorFactory.COR_USUARIO, tamanhoDp = 36)
+                    // O mapa já gira para acompanhar a direção (abaixo), então a seta
+                    // fica sempre reta apontando para cima na tela.
+                    rotation = 0f
                 }
             )
             // Gira o mapa conforme a direção do deslocamento, para a rota aparecer sempre
