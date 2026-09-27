@@ -19,7 +19,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -73,15 +72,7 @@ fun MapaScreen(viewModel: MapaViewModel = viewModel()) {
         }
     }
 
-    Scaffold(
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { viewModel.recalcularAgora() },
-                icon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
-                text = { Text(if (estado.calculandoRota) "Recalculando..." else "Recalcular rota") }
-            )
-        }
-    ) { paddingInterno ->
+    Scaffold { paddingInterno ->
         Column(modifier = Modifier.fillMaxSize().padding(paddingInterno)) {
             if (estado.navegacaoAtual == null && !estado.calculandoRota && estado.paradasAtivas.isNotEmpty()) {
                 Snackbar(modifier = Modifier.padding(8.dp)) {
@@ -100,7 +91,11 @@ fun MapaScreen(viewModel: MapaViewModel = viewModel()) {
                 )
             }
 
-            ResumoRota(estado = estado, aoIniciarNavegacao = { modoImersivo = true })
+            ResumoRota(
+                estado = estado,
+                aoRecalcular = { viewModel.recalcularAgora() },
+                aoIniciarNavegacao = { modoImersivo = true }
+            )
         }
     }
 
@@ -172,22 +167,29 @@ private fun formatarDistancia(metros: Double): String =
     else "${metros.toInt()} m"
 
 @Composable
-private fun ResumoRota(estado: MapaUiState, aoIniciarNavegacao: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
+private fun ResumoRota(estado: MapaUiState, aoRecalcular: () -> Unit, aoIniciarNavegacao: () -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
         Text(
             text = "${estado.paradasAtivas.size} parada(s) na rota · " +
                 "${estado.paradasFalhas.size} com falha · ${estado.paradasEntregues.size} entregues hoje",
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f)
+            style = MaterialTheme.typography.bodyMedium
         )
-        if (estado.navegacaoAtual != null) {
-            Button(onClick = aoIniciarNavegacao) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                Text(" Navegar", modifier = Modifier.padding(start = 4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(onClick = aoRecalcular, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Filled.Refresh, contentDescription = null)
+                Text(
+                    if (estado.calculandoRota) " Recalculando..." else " Recalcular",
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            }
+            if (estado.navegacaoAtual != null) {
+                Button(onClick = aoIniciarNavegacao, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                    Text(" Navegar", modifier = Modifier.padding(start = 4.dp))
+                }
             }
         }
     }
