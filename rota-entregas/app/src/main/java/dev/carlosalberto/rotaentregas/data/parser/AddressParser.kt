@@ -40,6 +40,13 @@ object AddressParser {
         "condominio", "condomínio"
     )
 
+    // Detecta "Rua 4", "Avenida 9" etc. no início da linha: o número faz parte do NOME da
+    // rua, não é o número da casa.
+    private val REGEX_PREFIXO_SEGUIDO_DE_NUMERO = Regex(
+        "^(" + PREFIXOS_LOGRADOURO.joinToString("|") { Regex.escape(it) } + """)\s+(\d{1,3})\b""",
+        RegexOption.IGNORE_CASE
+    )
+
     private val UFS_VALIDAS = setOf(
         "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG",
         "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"
@@ -95,11 +102,24 @@ object AddressParser {
         )
     }
 
+    // Linha de código de rota tipo "SSB9-CA01" (aparece tanto atrás de "#" na lista de
+    // itinerário quanto solta na tela de escaneamento de pacotes).
+    private val REGEX_CODIGO_ROTA = Regex("""\b[A-Z0-9]{3,6}-[A-Z0-9]{2,6}\b""")
+    private val REGEX_CODIGO_BARRAS = Regex("""\bTBR\w{6,}\b""", RegexOption.IGNORE_CASE)
+    private val REGEX_TIPO_EMBALAGEM = Regex(
+        """^\(?\s*[pmg]\s*\)?\s*caixa\s*$|^sacola(\s+pl[aá]stica)?$|^envelope$|^pacote$""",
+        RegexOption.IGNORE_CASE
+    )
+
     /**
-     * Uma foto = uma lista de paradas (print da tela de itinerário de um app de entrega).
-     * Cada parada começa em uma linha "Entrega" ou "Entregar HH:MM - HH:MM" e vai até a
-     * próxima ocorrência desse marcador. Se nenhum marcador for encontrado, a imagem não é
-     * uma lista — cai para [parse] tratando o texto inteiro como um único endereço.
+     * Uma foto = uma lista de paradas. Cobre dois layouts de app de entrega observados:
+     * - lista de itinerário: cada parada começa em "Entrega" ou "Entregar HH:MM - HH:MM";
+     * - escaneamento de pacotes: cada parada começa em uma linha de asteriscos (código
+     *   de rastreio mascarado), seguida do endereço e depois de "ID do pacote"/"Código de
+     *   barras"/tipo de embalagem, sem linha de cidade nem quantidade explícita (cada
+     *   bloco = 1 pacote).
+     * Se nenhum marcador for encontrado, a imagem não é uma lista — cai para [parse]
+     * tratando o texto inteiro como um único endereço.
      */
     fun parseMultiplos(textoOcr: String): List<EnderecoReconhecido> {
         val linhas = textoOcr.lines().map { it.trim() }.filter { it.isNotBlank() }
@@ -117,17 +137,31 @@ object AddressParser {
     }
 
     private fun ehCabecalhoDeParada(linha: String): Boolean =
-        linha.equals("Entrega", ignoreCase = true) || linha.startsWith("Entregar", ignoreCase = true)
+        linha.equals("Entrega", ignoreCase = true) ||
+            linha.startsWith("Entregar", ignoreCase = true) ||
+            Regex("""^\*{4,}$""").matches(linha)
+
+    private fun ehLinhaDeRuidoDeBloco(linha: String): Boolean {
+        val l = linha.trim()
+        return l.startsWith("#") ||
+            l.contains("senha única", ignoreCase = true) ||
+            l.contains("id do pacote", ignoreCase = true) ||
+            l.contains("código de barras", ignoreCase = true) ||
+            l.contains("codigo de barras", ignoreCase = true) ||
+            REGEX_CODIGO_ROTA.containsMatchIn(l) ||
+            REGEX_CODIGO_BARRAS.containsMatchIn(l) ||
+            REGEX_TIPO_EMBALAGEM.matches(l)
+    }
 
     private fun montarEnderecoDeBloco(bloco: List<String>): EnderecoReconhecido? {
-        val semCodigoNemSenha = bloco.filterNot {
-            it.startsWith("#") || it.contains("senha única", ignoreCase = true)
-        }
+        val linhasUteis = bloco.filterNot(::ehLinhaDeRuidoDeBloco)
 
-        val linhaQuantidade = semCodigoNemSenha.firstOrNull { REGEX_COLETAR.containsMatchIn(it) }
+        val linhaQuantidade = linhasUteis.firstOrNull { REGEX_COLETAR.containsMatchIn(it) }
+        // Na tela de escaneamento de pacotes cada bloco já representa exatamente 1 pacote
+        // (1 código de barras); só a lista de itinerário traz "Coletar N pacote(s)".
         val quantidade = linhaQuantidade?.let { extrairQuantidadeDeColeta(it) } ?: 1
 
-        val linhasEndereco = semCodigoNemSenha.filterNot { REGEX_COLETAR.containsMatchIn(it) }
+        val linhasEndereco = linhasUteis.filterNot { REGEX_COLETAR.containsMatchIn(it) }
         val linhaEndereco = linhasEndereco.getOrNull(0) ?: return null
         val linhaCidade = linhasEndereco.getOrNull(1).orEmpty()
 
@@ -205,7 +239,13 @@ object AddressParser {
      * ex.: "Rua Doutor Monte 1044 Centro").
      */
     private fun extrairNumeroEBairroTrailing(linha: String): Triple<String, String, String> {
-        val matchNumero = Regex("""\b(\d{1,5}[a-zA-Z]?)\b""").find(linha)
+        // Nomes de rua numéricos ("Rua 4", "Avenida 9", comuns em loteamentos) têm um
+        // número logo após o prefixo que NÃO é o número da casa — sem esse desvio, "Rua 4
+        // 125" seria lido como número "4" e "125" sobraria como se fosse bairro.
+        val matchNomeDeRuaNumerico = REGEX_PREFIXO_SEGUIDO_DE_NUMERO.find(linha)
+        val inicioBusca = matchNomeDeRuaNumerico?.range?.last?.plus(1) ?: 0
+
+        val matchNumero = Regex("""\b(\d{1,5}[a-zA-Z]?)\b""").find(linha, inicioBusca)
         if (matchNumero == null || matchNumero.value.length >= 5) {
             return Triple(linha.trim(), "", "")
         }
