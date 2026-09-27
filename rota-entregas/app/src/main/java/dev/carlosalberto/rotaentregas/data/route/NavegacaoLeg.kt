@@ -6,7 +6,10 @@ import dev.carlosalberto.rotaentregas.data.geocode.Coordenada
 data class PassoNavegacao(
     val instrucao: String,
     val distanciaMetros: Double,
-    val localizacaoManobra: Coordenada
+    val duracaoSegundos: Double,
+    val localizacaoManobra: Coordenada,
+    /** Modificador bruto do OSRM ("left", "right", "straight"...), para desenhar a seta girada. */
+    val modificador: String?
 )
 
 /**

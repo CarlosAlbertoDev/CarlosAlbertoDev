@@ -5,7 +5,14 @@ import dev.carlosalberto.rotaentregas.data.remote.ViaCepResposta
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-data class Coordenada(val latitude: Double, val longitude: Double)
+data class Coordenada(
+    val latitude: Double,
+    val longitude: Double,
+    /** Velocidade instantânea do GPS (m/s), usada no velocímetro da navegação. */
+    val velocidadeMetrosPorSegundo: Float = 0f,
+    /** Direção do deslocamento (graus, 0=norte), usada para girar o mapa na navegação. */
+    val direcaoGraus: Float = 0f
+)
 
 /**
  * Combina duas fontes públicas gratuitas:

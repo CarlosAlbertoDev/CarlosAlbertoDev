@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.callbackFlow
 class LocationTracker(private val context: Context) {
 
     @SuppressLint("MissingPermission")
-    fun localizacoes(intervaloMillis: Long = 5_000L, distanciaMinimaMetros: Float = 10f): Flow<Coordenada> =
+    fun localizacoes(intervaloMillis: Long = 3_000L, distanciaMinimaMetros: Float = 5f): Flow<Coordenada> =
         callbackFlow {
             val clienteLocalizacao = LocationServices.getFusedLocationProviderClient(context)
             val requisicao = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervaloMillis)
@@ -30,7 +30,14 @@ class LocationTracker(private val context: Context) {
             val callback = object : LocationCallback() {
                 override fun onLocationResult(resultado: LocationResult) {
                     resultado.lastLocation?.let { local ->
-                        trySend(Coordenada(local.latitude, local.longitude))
+                        trySend(
+                            Coordenada(
+                                latitude = local.latitude,
+                                longitude = local.longitude,
+                                velocidadeMetrosPorSegundo = if (local.hasSpeed()) local.speed else 0f,
+                                direcaoGraus = if (local.hasBearing()) local.bearing else 0f
+                            )
+                        )
                     }
                 }
             }

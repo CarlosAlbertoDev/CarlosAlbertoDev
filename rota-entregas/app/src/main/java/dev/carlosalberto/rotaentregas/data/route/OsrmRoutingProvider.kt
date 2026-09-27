@@ -46,7 +46,9 @@ class OsrmRoutingProvider(private val osrmApi: OsrmApi) : RoutingProvider {
                 PassoNavegacao(
                     instrucao = traduzirManobra(passo.maneuver.type, passo.maneuver.modifier, passo.name),
                     distanciaMetros = passo.distance,
-                    localizacaoManobra = Coordenada(latitude = local[1], longitude = local[0])
+                    duracaoSegundos = passo.duration,
+                    localizacaoManobra = Coordenada(latitude = local[1], longitude = local[0]),
+                    modificador = passo.maneuver.modifier ?: passo.maneuver.type
                 )
             }
         }

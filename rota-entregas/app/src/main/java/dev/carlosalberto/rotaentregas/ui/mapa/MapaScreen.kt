@@ -1,6 +1,7 @@
 package dev.carlosalberto.rotaentregas.ui.mapa
 
 import android.Manifest
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Navigation
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -59,6 +61,7 @@ fun MapaScreen(viewModel: MapaViewModel = viewModel()) {
     val estado by viewModel.uiState.collectAsState()
     val contexto = LocalContext.current
     var paradaSelecionada by remember { mutableStateOf<ParadaEntity?>(null) }
+    var modoImersivo by remember { mutableStateOf(false) }
 
     val permissaoLocalizacao = rememberPermissionState(Manifest.permission.ACCESS_FINE_LOCATION)
 
@@ -97,8 +100,12 @@ fun MapaScreen(viewModel: MapaViewModel = viewModel()) {
                 )
             }
 
-            ResumoRota(estado = estado)
+            ResumoRota(estado = estado, aoIniciarNavegacao = { modoImersivo = true })
         }
+    }
+
+    if (modoImersivo) {
+        NavegacaoImersiva(estado = estado, aoFechar = { modoImersivo = false })
     }
 
     paradaSelecionada?.let { parada ->
@@ -165,13 +172,24 @@ private fun formatarDistancia(metros: Double): String =
     else "${metros.toInt()} m"
 
 @Composable
-private fun ResumoRota(estado: MapaUiState) {
-    Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+private fun ResumoRota(estado: MapaUiState, aoIniciarNavegacao: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
         Text(
             text = "${estado.paradasAtivas.size} parada(s) na rota · " +
                 "${estado.paradasFalhas.size} com falha · ${estado.paradasEntregues.size} entregues hoje",
-            style = MaterialTheme.typography.bodyMedium
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f)
         )
+        if (estado.navegacaoAtual != null) {
+            Button(onClick = aoIniciarNavegacao) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                Text(" Navegar", modifier = Modifier.padding(start = 4.dp))
+            }
+        }
     }
 }
 
