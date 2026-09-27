@@ -12,7 +12,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -91,11 +90,7 @@ fun MapaScreen(viewModel: MapaViewModel = viewModel()) {
                 )
             }
 
-            ResumoRota(
-                estado = estado,
-                aoRecalcular = { viewModel.recalcularAgora() },
-                aoIniciarNavegacao = { modoImersivo = true }
-            )
+            ResumoRota(estado = estado, aoIniciarNavegacao = { modoImersivo = true })
         }
     }
 
@@ -167,29 +162,24 @@ private fun formatarDistancia(metros: Double): String =
     else "${metros.toInt()} m"
 
 @Composable
-private fun ResumoRota(estado: MapaUiState, aoRecalcular: () -> Unit, aoIniciarNavegacao: () -> Unit) {
+private fun ResumoRota(estado: MapaUiState, aoIniciarNavegacao: () -> Unit) {
+    // A rota é recalculada sozinha: periodicamente conforme o entregador se desloca,
+    // na hora se ele sair do trajeto sugerido, e a cada entrega confirmada/marcada como
+    // falha — não há necessidade de um botão manual de recálculo.
     Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
         Text(
             text = "${estado.paradasAtivas.size} parada(s) na rota · " +
-                "${estado.paradasFalhas.size} com falha · ${estado.paradasEntregues.size} entregues hoje",
+                "${estado.paradasFalhas.size} com falha · ${estado.paradasEntregues.size} entregues hoje" +
+                if (estado.calculandoRota) " · recalculando..." else "",
             style = MaterialTheme.typography.bodyMedium
         )
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedButton(onClick = aoRecalcular, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Filled.Refresh, contentDescription = null)
-                Text(
-                    if (estado.calculandoRota) " Recalculando..." else " Recalcular",
-                    modifier = Modifier.padding(start = 4.dp)
-                )
-            }
-            if (estado.navegacaoAtual != null) {
-                Button(onClick = aoIniciarNavegacao, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                    Text(" Navegar", modifier = Modifier.padding(start = 4.dp))
-                }
+        if (estado.navegacaoAtual != null) {
+            Button(
+                onClick = aoIniciarNavegacao,
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
+            ) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                Text(" Navegar", modifier = Modifier.padding(start = 4.dp))
             }
         }
     }
