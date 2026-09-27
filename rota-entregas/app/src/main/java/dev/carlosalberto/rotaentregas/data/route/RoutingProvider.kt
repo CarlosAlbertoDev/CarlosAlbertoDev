@@ -17,12 +17,5 @@ interface RoutingProvider {
      */
     suspend fun matrizDeCusto(pontos: List<Coordenada>): Array<DoubleArray>?
 
-    /**
-     * Geometria detalhada (lista de coordenadas) da rota seguindo [pontosEmOrdem],
-     * para desenhar a polilinha real sobre as ruas no mapa. Retorna null se
-     * indisponível — nesse caso o mapa desenha apenas linhas retas entre as paradas.
-     */
-    suspend fun geometriaDaRota(pontosEmOrdem: List<Coordenada>): List<Coordenada>?
-
     val respeitaSentidoDasRuas: Boolean
 }

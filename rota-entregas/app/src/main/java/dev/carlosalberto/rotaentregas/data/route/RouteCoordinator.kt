@@ -10,6 +10,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
 
+/** Navegação passo a passo até a parada que está no topo da fila — nunca a rota inteira. */
+data class NavegacaoAtual(
+    val paradaId: Long,
+    val endereco: String,
+    val leg: NavegacaoLeg
+)
+
 /**
  * Ponto único que decide QUANDO recalcular a rota e aplica o resultado no banco.
  * Chamado tanto manualmente (usuário pede nova rota) quanto automaticamente pelo
@@ -43,6 +50,23 @@ class RouteCoordinator(
     /** Paradas ativas já ordenadas conforme a última rota calculada, prontas para desenhar no mapa. */
     suspend fun paradasOrdenadas(): List<ParadaEntity> =
         paradaRepository.observarAtivas().first().sortedBy { it.ordemNaRota ?: Int.MAX_VALUE }
+
+    /**
+     * Instruções de navegação (virar à direita/esquerda etc.) só até a parada que está
+     * no topo da fila — do jeito que um GPS normal funciona, uma parada de cada vez, em
+     * vez de desenhar a rota inteira com todas as paradas emendadas de uma só vez.
+     */
+    suspend fun calcularNavegacaoParaProximaParada(origemAtual: Coordenada): NavegacaoAtual? {
+        val proxima = paradasOrdenadas().firstOrNull() ?: return null
+        val latitude = proxima.latitude ?: return null
+        val longitude = proxima.longitude ?: return null
+
+        val osrmUrl = settingsRepository.osrmBaseUrl.first()
+        val provedor = OsrmRoutingProvider(NetworkModule.criarOsrmApi(osrmUrl))
+        val leg = provedor.calcularInstrucoes(origemAtual, Coordenada(latitude, longitude)) ?: return null
+
+        return NavegacaoAtual(paradaId = proxima.id, endereco = proxima.enderecoCompleto, leg = leg)
+    }
 
     /**
      * Recalcula a rota pendente automaticamente quando o entregador se desloca o

@@ -6,9 +6,7 @@ data class ResultadoRota(
     /** Índices em [ParadaEntity]/[coordenadasParadas] na ordem de visita otimizada. */
     val ordemDosIndices: List<Int>,
     val distanciaTotalMetros: Double,
-    val respeitouSentidoDasRuas: Boolean,
-    /** Geometria detalhada para desenhar no mapa; null quando só há linha reta disponível. */
-    val geometria: List<Coordenada>?
+    val respeitouSentidoDasRuas: Boolean
 )
 
 /**
@@ -29,7 +27,7 @@ class RouteOptimizer(
 
     suspend fun otimizar(origem: Coordenada, paradas: List<Coordenada>): ResultadoRota {
         if (paradas.isEmpty()) {
-            return ResultadoRota(emptyList(), 0.0, provedorPrincipal.respeitaSentidoDasRuas, null)
+            return ResultadoRota(emptyList(), 0.0, provedorPrincipal.respeitaSentidoDasRuas)
         }
 
         val pontos = listOf(origem) + paradas
@@ -42,15 +40,10 @@ class RouteOptimizer(
         val ordemFinal = refinarComDoisOpt(ordemInicial, matriz)
         val distanciaTotal = calcularCustoRota(ordemFinal, matriz)
 
-        val geometria = if (!usandoReserva) {
-            provedorPrincipal.geometriaDaRota(listOf(origem) + ordemFinal.map { paradas[it] })
-        } else null
-
         return ResultadoRota(
             ordemDosIndices = ordemFinal,
             distanciaTotalMetros = distanciaTotal,
-            respeitouSentidoDasRuas = !usandoReserva,
-            geometria = geometria
+            respeitouSentidoDasRuas = !usandoReserva
         )
     }
 

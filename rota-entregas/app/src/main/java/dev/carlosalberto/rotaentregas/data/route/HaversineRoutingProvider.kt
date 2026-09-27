@@ -18,7 +18,4 @@ class HaversineRoutingProvider : RoutingProvider {
                 )
             }
         }
-
-    // Sem dados de ruas não há geometria real; o mapa cai para linhas retas entre paradas.
-    override suspend fun geometriaDaRota(pontosEmOrdem: List<Coordenada>): List<Coordenada>? = null
 }

@@ -1,18 +1,21 @@
 package dev.carlosalberto.rotaentregas.ui.mapa
 
 import android.Manifest
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -30,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -47,6 +51,7 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
+import java.util.Locale
 
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -75,9 +80,9 @@ fun MapaScreen(viewModel: MapaViewModel = viewModel()) {
         }
     ) { paddingInterno ->
         Column(modifier = Modifier.fillMaxSize().padding(paddingInterno)) {
-            if (!estado.respeitandoSentidoDasRuas && estado.geometriaRota == null && estado.paradasAtivas.isNotEmpty()) {
+            if (estado.navegacaoAtual == null && !estado.calculandoRota && estado.paradasAtivas.isNotEmpty()) {
                 Snackbar(modifier = Modifier.padding(8.dp)) {
-                    Text("Sem internet: usando distância em linha reta (sem considerar mão única das ruas)")
+                    Text("Sem instruções de navegação no momento (sem internet ou aguardando localização)")
                 }
             }
 
@@ -85,6 +90,10 @@ fun MapaScreen(viewModel: MapaViewModel = viewModel()) {
                 MapaOsm(
                     estado = estado,
                     aoClicarParada = { paradaSelecionada = it }
+                )
+                CartaoInstrucao(
+                    estado = estado,
+                    modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(12.dp)
                 )
             }
 
@@ -109,6 +118,52 @@ fun MapaScreen(viewModel: MapaViewModel = viewModel()) {
     }
 }
 
+/** Banner de instrução no topo do mapa, no estilo de um app de navegação: uma manobra por vez. */
+@Composable
+private fun CartaoInstrucao(estado: MapaUiState, modifier: Modifier = Modifier) {
+    val navegacao = estado.navegacaoAtual ?: return
+    val passoAtual = navegacao.leg.passos.getOrNull(estado.indicePassoAtual)
+
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.Navigation,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary
+                )
+                Column(modifier = Modifier.padding(start = 10.dp)) {
+                    Text(
+                        text = passoAtual?.instrucao ?: "Você chegou",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                    estado.distanciaAteProximaManobraMetros?.let { distancia ->
+                        Text(
+                            text = formatarDistancia(distancia),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                }
+            }
+            Text(
+                text = "Destino: ${navegacao.endereco}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+    }
+}
+
+private fun formatarDistancia(metros: Double): String =
+    if (metros >= 1000) String.format(Locale("pt", "BR"), "%.1f km", metros / 1000)
+    else "${metros.toInt()} m"
+
 @Composable
 private fun ResumoRota(estado: MapaUiState) {
     Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
@@ -117,12 +172,6 @@ private fun ResumoRota(estado: MapaUiState) {
                 "${estado.paradasFalhas.size} com falha · ${estado.paradasEntregues.size} entregues hoje",
             style = MaterialTheme.typography.bodyMedium
         )
-        estado.paradasAtivas.firstOrNull()?.let { proxima ->
-            Text(
-                text = "Próxima parada: ${proxima.enderecoCompleto}",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
     }
 }
 
@@ -176,7 +225,7 @@ private fun MapaOsm(estado: MapaUiState, aoClicarParada: (ParadaEntity) -> Unit)
     val mapView = remember {
         MapView(contexto).apply {
             setMultiTouchControls(true)
-            controller.setZoom(14.0)
+            controller.setZoom(16.0)
         }
     }
 
@@ -233,18 +282,20 @@ private fun MapaOsm(estado: MapaUiState, aoClicarParada: (ParadaEntity) -> Unit)
             mapView.controller.animateTo(GeoPoint(local.latitude, local.longitude))
         }
 
-        val pontosRota = estado.geometriaRota?.map { GeoPoint(it.latitude, it.longitude) }
-            ?: buildList {
-                estado.localizacaoAtual?.let { add(GeoPoint(it.latitude, it.longitude)) }
-                estado.paradasAtivas.forEach { p ->
-                    if (p.latitude != null && p.longitude != null) add(GeoPoint(p.latitude, p.longitude))
+        // Só a perna até a PRÓXIMA parada — nunca a rota inteira emendada de uma vez.
+        val proximaParada = estado.paradasAtivas.firstOrNull()
+        val pontosRota = estado.navegacaoAtual?.leg?.geometria?.map { GeoPoint(it.latitude, it.longitude) }
+            ?: estado.localizacaoAtual?.let { local ->
+                proximaParada?.takeIf { it.latitude != null && it.longitude != null }?.let { parada ->
+                    listOf(GeoPoint(local.latitude, local.longitude), GeoPoint(parada.latitude!!, parada.longitude!!))
                 }
-            }
+            }.orEmpty()
+
         if (pontosRota.size >= 2) {
             val linha = Polyline(mapView).apply {
                 setPoints(pontosRota)
                 outlinePaint.color = MarcadorFactory.COR_PROXIMA
-                outlinePaint.strokeWidth = 8f
+                outlinePaint.strokeWidth = 10f
             }
             mapView.overlays.add(linha)
         }

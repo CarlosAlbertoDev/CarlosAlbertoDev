@@ -11,7 +11,20 @@ data class OsrmTabelaResposta(
 )
 
 data class OsrmGeometria(val coordinates: List<List<Double>>? = null)
-data class OsrmRota(val geometry: OsrmGeometria?, val distance: Double, val duration: Double)
+data class OsrmManobra(val type: String? = null, val modifier: String? = null, val location: List<Double>? = null)
+data class OsrmPasso(
+    val distance: Double = 0.0,
+    val duration: Double = 0.0,
+    val name: String? = null,
+    val maneuver: OsrmManobra? = null
+)
+data class OsrmPerna(val steps: List<OsrmPasso>? = null, val distance: Double = 0.0, val duration: Double = 0.0)
+data class OsrmRota(
+    val geometry: OsrmGeometria?,
+    val distance: Double,
+    val duration: Double,
+    val legs: List<OsrmPerna>? = null
+)
 data class OsrmRotaResposta(val code: String, val routes: List<OsrmRota>? = null)
 
 /**
@@ -33,6 +46,7 @@ interface OsrmApi {
     suspend fun calcularRota(
         @Path(value = "coordenadas", encoded = true) coordenadasLonLat: String,
         @Query("overview") overview: String = "full",
-        @Query("geometries") geometrias: String = "geojson"
+        @Query("geometries") geometrias: String = "geojson",
+        @Query("steps") incluirPassos: String = "true"
     ): OsrmRotaResposta
 }
