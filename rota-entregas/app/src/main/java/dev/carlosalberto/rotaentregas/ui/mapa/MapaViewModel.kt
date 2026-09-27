@@ -19,6 +19,12 @@ import kotlinx.coroutines.launch
 /** Distância até a manobra atual abaixo da qual consideramos que ela já foi feita. */
 private const val LIMIAR_CHEGADA_MANOBRA_METROS = 30.0
 
+/** Distância da rota sugerida a partir da qual consideramos que o entregador "saiu do caminho". */
+private const val LIMIAR_FORA_DA_ROTA_METROS = 100.0
+
+/** Intervalo mínimo entre recálculos forçados por desvio, para não disparar em sequência. */
+private const val COOLDOWN_RECALCULO_FORCADO_MILLIS = 15_000L
+
 data class MapaUiState(
     val paradasAtivas: List<ParadaEntity> = emptyList(),
     val paradasFalhas: List<ParadaEntity> = emptyList(),
@@ -43,6 +49,7 @@ class MapaViewModel : ViewModel() {
     val uiState: StateFlow<MapaUiState> = _uiState
 
     private var jobMonitoramento: Job? = null
+    private var ultimoRecalculoForcadoEm = 0L
 
     init {
         viewModelScope.launch {
@@ -69,6 +76,7 @@ class MapaViewModel : ViewModel() {
             val localizacoesComAtualizacaoDeEstado = locationTracker.localizacoes().onEach { localizacao ->
                 _uiState.value = _uiState.value.copy(localizacaoAtual = localizacao)
                 avaliarProgressoDaManobra(localizacao)
+                avaliarSeSaiuDaRota(localizacao)
             }
             routeCoordinator.monitorarEReotimizarContinuamente(
                 localizacoes = localizacoesComAtualizacaoDeEstado
@@ -118,6 +126,29 @@ class MapaViewModel : ViewModel() {
             estado.copy(indicePassoAtual = estado.indicePassoAtual + 1, distanciaAteProximaManobraMetros = null)
         } else {
             estado.copy(distanciaAteProximaManobraMetros = distancia)
+        }
+    }
+
+    /**
+     * Se o entregador se afasta demais do trajeto sugerido (foi para outra parada fora
+     * de ordem, errou uma entrada, etc.), recalcula a rota na hora — igual a um GPS que
+     * anuncia "recalculando" quando você passa da rua que ele pediu para entrar — em vez
+     * de esperar o próximo recálculo periódico.
+     */
+    private fun avaliarSeSaiuDaRota(localizacao: Coordenada) {
+        val geometria = _uiState.value.navegacaoAtual?.leg?.geometria
+        if (geometria.isNullOrEmpty()) return
+
+        val distanciaMinima = geometria.minOf {
+            Haversine.distanciaMetros(localizacao.latitude, localizacao.longitude, it.latitude, it.longitude)
+        }
+
+        val agora = System.currentTimeMillis()
+        if (distanciaMinima > LIMIAR_FORA_DA_ROTA_METROS &&
+            agora - ultimoRecalculoForcadoEm > COOLDOWN_RECALCULO_FORCADO_MILLIS
+        ) {
+            ultimoRecalculoForcadoEm = agora
+            recalcularAgora()
         }
     }
 

@@ -253,7 +253,7 @@ private fun MapaOsm(estado: MapaUiState, aoClicarParada: (ParadaEntity) -> Unit)
             val cor = if (indice == 0) MarcadorFactory.COR_PROXIMA else MarcadorFactory.COR_PENDENTE
             val marcador = Marker(mapView).apply {
                 position = GeoPoint(lat, lon)
-                icon = MarcadorFactory.criarPino(contexto, cor)
+                icon = MarcadorFactory.criarPino(contexto, cor, rotulo = "${indice + 1}")
                 title = "${indice + 1}. ${parada.enderecoCompleto}"
                 setOnMarkerClickListener { _, _ -> aoClicarParada(parada); true }
             }

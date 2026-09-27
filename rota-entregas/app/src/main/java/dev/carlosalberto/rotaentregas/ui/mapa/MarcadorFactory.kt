@@ -10,7 +10,8 @@ import android.content.Context
 /** Gera pinos coloridos simples em runtime, sem depender de arquivos de imagem externos. */
 object MarcadorFactory {
 
-    fun criarPino(context: Context, corPreenchimento: Int, tamanhoDp: Int = 36): BitmapDrawable {
+    /** [rotulo] desenha um número (ordem da parada na rota, "1", "2", "3"...) centrado no pino. */
+    fun criarPino(context: Context, corPreenchimento: Int, tamanhoDp: Int = 36, rotulo: String? = null): BitmapDrawable {
         val densidade = context.resources.displayMetrics.density
         val tamanhoPx = (tamanhoDp * densidade).toInt()
         val bitmap = Bitmap.createBitmap(tamanhoPx, tamanhoPx, Bitmap.Config.ARGB_8888)
@@ -39,6 +40,17 @@ object MarcadorFactory {
             strokeWidth = 2.5f * densidade
         }
         canvas.drawCircle(centroX, centroY, raio, pinturaBorda)
+
+        if (!rotulo.isNullOrBlank()) {
+            val pinturaTexto = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textAlign = Paint.Align.CENTER
+                textSize = raio * 1.05f
+                isFakeBoldText = true
+            }
+            val yCentralizado = centroY - (pinturaTexto.descent() + pinturaTexto.ascent()) / 2
+            canvas.drawText(rotulo, centroX, yCentralizado, pinturaTexto)
+        }
 
         return BitmapDrawable(context.resources, bitmap)
     }
