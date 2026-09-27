@@ -15,7 +15,9 @@ enum class StatusProcessamento { AGUARDANDO, PROCESSANDO, CONCLUIDO, ERRO }
 data class ImagemImportada(
     val uri: Uri,
     val status: StatusProcessamento = StatusProcessamento.AGUARDANDO,
-    val endereco: EnderecoReconhecido? = null
+    // Uma foto pode conter um único endereço (etiqueta de pacote) ou uma lista inteira
+    // de paradas (print da tela de itinerário de um app de entregas).
+    val enderecos: List<EnderecoReconhecido> = emptyList()
 )
 
 data class ImportarUiState(
@@ -58,18 +60,18 @@ class ImportarViewModel : ViewModel() {
 
                 val resultado = runCatching {
                     val texto = ocrProcessor.reconhecerTexto(item.uri)
-                    AddressParser.parse(texto)
+                    AddressParser.parseMultiplos(texto)
                 }
 
                 imagensAtualizadas[i] = if (resultado.isSuccess) {
-                    item.copy(status = StatusProcessamento.CONCLUIDO, endereco = resultado.getOrNull())
+                    item.copy(status = StatusProcessamento.CONCLUIDO, enderecos = resultado.getOrDefault(emptyList()))
                 } else {
                     item.copy(status = StatusProcessamento.ERRO)
                 }
                 _uiState.value = _uiState.value.copy(imagens = imagensAtualizadas.toList())
             }
 
-            val enderecosReconhecidos = imagensAtualizadas.mapNotNull { it.endereco }
+            val enderecosReconhecidos = imagensAtualizadas.flatMap { it.enderecos }
             if (enderecosReconhecidos.isNotEmpty()) {
                 paradaRepository.importarLote(enderecosReconhecidos)
             }

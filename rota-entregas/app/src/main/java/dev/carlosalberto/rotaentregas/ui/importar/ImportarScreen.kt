@@ -78,8 +78,9 @@ fun ImportarScreen(
                 style = MaterialTheme.typography.headlineSmall
             )
             Text(
-                text = "Tire fotos ou selecione da galeria. O app reconhece endereço, número e " +
-                    "quantidade de pacotes automaticamente.",
+                text = "Tire fotos ou selecione da galeria: etiquetas de pacote (um endereço por foto) " +
+                    "ou prints da lista de itinerário do seu app de entregas (várias paradas em uma " +
+                    "única foto). O app reconhece endereço, número e quantidade de pacotes automaticamente.",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
             )
@@ -148,16 +149,37 @@ private fun ItemImagemImportada(imagem: ImagemImportada, aoRemover: () -> Unit) 
                 modifier = Modifier.size(64.dp).aspectRatio(1f)
             )
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = imagem.endereco?.logradouro?.ifBlank { null } ?: "Aguardando processamento",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                if (imagem.endereco != null) {
-                    Text(
-                        text = "Nº ${imagem.endereco.numero.ifBlank { "?" }} · " +
-                            "${imagem.endereco.quantidadePacotes} pacote(s)",
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                when {
+                    imagem.status == StatusProcessamento.CONCLUIDO && imagem.enderecos.size == 1 -> {
+                        val endereco = imagem.enderecos.first()
+                        Text(
+                            text = endereco.logradouro.ifBlank { "Endereço não identificado" },
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = "Nº ${endereco.numero.ifBlank { "?" }} · ${endereco.quantidadePacotes} pacote(s)",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    imagem.status == StatusProcessamento.CONCLUIDO && imagem.enderecos.size > 1 -> {
+                        val totalPacotes = imagem.enderecos.sumOf { it.quantidadePacotes }
+                        Text(
+                            text = "${imagem.enderecos.size} paradas encontradas nesta lista",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = "$totalPacotes pacote(s) no total",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    imagem.status == StatusProcessamento.CONCLUIDO -> {
+                        Text(
+                            text = "Nenhum endereço reconhecido nesta foto",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    else -> Text("Aguardando processamento", style = MaterialTheme.typography.bodyMedium)
                 }
             }
             Box(modifier = Modifier.size(28.dp), contentAlignment = Alignment.Center) {

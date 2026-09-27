@@ -6,10 +6,16 @@ import java.util.Locale
 /**
  * Extrai campos estruturados de endereço a partir do texto bruto devolvido pelo OCR.
  *
+ * Cobre dois formatos reais bem diferentes:
+ * - Uma foto por endereço (etiqueta de pacote, papel manuscrito etc.) → [parse].
+ * - Um print de tela com uma LISTA de paradas de um app de entregas (várias paradas
+ *   por foto, cada bloco no padrão "Entrega" / "#código" / endereço / cidade /
+ *   "Coletar N pacote(s)") → [parseMultiplos], que separa cada bloco em uma parada.
+ *
  * O texto de origem é ruidoso (quebras de linha arbitrárias, maiúsculas/minúsculas
- * inconsistentes, abreviações), então a estratégia é: primeiro extrair e "remover" do
- * texto os campos que têm um padrão bem definido (CEP, quantidade de pacotes, UF),
- * sobrando um texto mais limpo para localizar logradouro/número/bairro/cidade.
+ * inconsistentes, abreviações, truncamento visual com "..." quando a tela corta o
+ * texto), então a estratégia é sempre trabalhar linha a linha em vez de tentar um
+ * único regex gigante sobre o texto inteiro.
  */
 object AddressParser {
 
@@ -18,6 +24,14 @@ object AddressParser {
     private val REGEX_QUANTIDADE = Regex(
         """(\d+)\s*(pacotes?|volumes?|itens?|encomendas?|caixas?)|(pacotes?|volumes?|itens?|encomendas?|caixas?)\s*[:\-]?\s*(\d+)|[x×]\s*(\d+)\b""",
         RegexOption.IGNORE_CASE
+    )
+
+    /** Telas de itinerário usam "Coletar um pacote" / "Coletar 2 pacotes" (número por extenso ou dígito). */
+    private val REGEX_COLETAR = Regex("""coletar\s+(\w+)\s+pacotes?""", RegexOption.IGNORE_CASE)
+
+    private val NUMEROS_POR_EXTENSO = mapOf(
+        "um" to 1, "uma" to 1, "dois" to 2, "duas" to 2, "tres" to 3, "três" to 3,
+        "quatro" to 4, "cinco" to 5, "seis" to 6, "sete" to 7, "oito" to 8, "nove" to 9, "dez" to 10
     )
 
     private val PREFIXOS_LOGRADOURO = listOf(
@@ -37,41 +51,36 @@ object AddressParser {
         RegexOption.IGNORE_CASE
     )
     private val REGEX_BAIRRO_LABEL = Regex("""bairro\s*[:\-]?\s*(.+)""", RegexOption.IGNORE_CASE)
-    private val REGEX_CIDADE_UF = Regex("""([A-Za-zÀ-ÿ .]{2,})\s*[-/]\s*([A-Za-z]{2})\b""")
 
+    // "Cidade - UF" ou "Cidade/UF" (endereço digitado à mão / formulário).
+    private val REGEX_CIDADE_UF_COM_SEPARADOR = Regex("""([A-Za-zÀ-ÿ .]{2,})\s*[-/]\s*([A-Za-z]{2})\b""")
+    // "Cidade UF 12345678 Brazil" (etiqueta de remessa Amazon: sem hífen/traço nenhum).
+    private val REGEX_CIDADE_UF_CEP = Regex("""([A-Za-zÀ-ÿ]{2,})\s+([A-Za-z]{2})\s+(\d{8})\b""")
+
+    /** Uma foto = um endereço (etiqueta de pacote, anotação manuscrita, formulário). */
     fun parse(textoOcr: String): EnderecoReconhecido {
-        val linhas = textoOcr.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val todasAsLinhas = textoOcr.lines().map { it.trim() }.filter { it.isNotBlank() }
+
+        // Etiqueta de "Pickup" (coleta/devolução): o topo da etiqueta traz o endereço do
+        // centro de distribuição, e o endereço do cliente (o que interessa aqui) vem
+        // depois do marcador "Pickup ID". Sem esse recorte, a cidade/UF do centro de
+        // distribuição seria capturada por engano em vez da do cliente.
+        val indicePickup = todasAsLinhas.indexOfFirst { it.contains("pickup id", ignoreCase = true) }
+        val linhas = if (indicePickup >= 0) todasAsLinhas.drop(indicePickup + 1) else todasAsLinhas
         val textoCompleto = linhas.joinToString(" \n ")
 
         val cep = REGEX_CEP.find(textoCompleto)?.let { "${it.groupValues[1]}-${it.groupValues[2]}" } ?: ""
-
         val quantidade = extrairQuantidade(textoCompleto)
-
         val complemento = REGEX_COMPLEMENTO.find(textoCompleto)?.value?.trim() ?: ""
 
         val bairroPorLabel = linhas.firstNotNullOfOrNull { linha ->
             REGEX_BAIRRO_LABEL.find(linha)?.groupValues?.get(1)?.trim()
         } ?: ""
 
-        var cidade = ""
-        var uf = ""
-        for (linha in linhas) {
-            val match = REGEX_CIDADE_UF.find(linha) ?: continue
-            val ufCandidata = match.groupValues[2].uppercase(Locale.ROOT)
-            if (ufCandidata in UFS_VALIDAS) {
-                cidade = match.groupValues[1].trim().trimEnd(',')
-                uf = ufCandidata
-                break
-            }
-        }
+        val (cidade, uf) = extrairCidadeEUf(linhas)
+        val (logradouro, numero, bairroTrailing) = extrairLogradouroNumeroEBairro(linhas)
 
-        val (logradouro, numero) = extrairLogradouroENumero(linhas)
-
-        val bairro = bairroPorLabel.ifBlank {
-            // Heurística: quando não há rótulo explícito "Bairro:", tentamos a linha
-            // que sobra entre a linha do logradouro e a linha de cidade/UF/CEP.
-            inferirBairro(linhas, logradouro, cidade)
-        }
+        val bairro = bairroPorLabel.ifBlank { bairroTrailing.ifBlank { inferirBairro(linhas, logradouro, cidade) } }
 
         return EnderecoReconhecido(
             textoOcrBruto = textoOcr,
@@ -86,42 +95,123 @@ object AddressParser {
         )
     }
 
+    /**
+     * Uma foto = uma lista de paradas (print da tela de itinerário de um app de entrega).
+     * Cada parada começa em uma linha "Entrega" ou "Entregar HH:MM - HH:MM" e vai até a
+     * próxima ocorrência desse marcador. Se nenhum marcador for encontrado, a imagem não é
+     * uma lista — cai para [parse] tratando o texto inteiro como um único endereço.
+     */
+    fun parseMultiplos(textoOcr: String): List<EnderecoReconhecido> {
+        val linhas = textoOcr.lines().map { it.trim() }.filter { it.isNotBlank() }
+            .filterNot { it.all(Char::isDigit) } // remove números soltos dos "badges" de posição da parada
+
+        val indicesCabecalho = linhas.indices.filter { ehCabecalhoDeParada(linhas[it]) }
+        if (indicesCabecalho.isEmpty()) {
+            return listOf(parse(textoOcr))
+        }
+
+        return indicesCabecalho.mapIndexedNotNull { posicao, inicio ->
+            val fim = indicesCabecalho.getOrElse(posicao + 1) { linhas.size }
+            montarEnderecoDeBloco(linhas.subList(inicio + 1, fim))
+        }
+    }
+
+    private fun ehCabecalhoDeParada(linha: String): Boolean =
+        linha.equals("Entrega", ignoreCase = true) || linha.startsWith("Entregar", ignoreCase = true)
+
+    private fun montarEnderecoDeBloco(bloco: List<String>): EnderecoReconhecido? {
+        val semCodigoNemSenha = bloco.filterNot {
+            it.startsWith("#") || it.contains("senha única", ignoreCase = true)
+        }
+
+        val linhaQuantidade = semCodigoNemSenha.firstOrNull { REGEX_COLETAR.containsMatchIn(it) }
+        val quantidade = linhaQuantidade?.let { extrairQuantidadeDeColeta(it) } ?: 1
+
+        val linhasEndereco = semCodigoNemSenha.filterNot { REGEX_COLETAR.containsMatchIn(it) }
+        val linhaEndereco = linhasEndereco.getOrNull(0) ?: return null
+        val linhaCidade = linhasEndereco.getOrNull(1).orEmpty()
+
+        val (logradouro, numero, bairro) = extrairNumeroEBairroTrailing(linhaEndereco)
+        if (logradouro.isBlank()) return null
+
+        return EnderecoReconhecido(
+            textoOcrBruto = (listOfNotNull(linhaEndereco, linhaCidade.ifBlank { null }, linhaQuantidade)).joinToString("\n"),
+            logradouro = logradouro,
+            numero = numero,
+            bairro = bairro,
+            cidade = linhaCidade,
+            quantidadePacotes = quantidade
+        )
+    }
+
+    private fun extrairQuantidadeDeColeta(linha: String): Int {
+        val palavra = REGEX_COLETAR.find(linha)?.groupValues?.get(1)?.lowercase(Locale.ROOT) ?: return 1
+        palavra.toIntOrNull()?.let { return it.coerceIn(1, 999) }
+        return NUMEROS_POR_EXTENSO[palavra] ?: 1
+    }
+
     private fun extrairQuantidade(texto: String): Int {
+        REGEX_COLETAR.find(texto)?.let { return extrairQuantidadeDeColeta(it.value) }
         val match = REGEX_QUANTIDADE.find(texto) ?: return 1
         val numeroTexto = match.groupValues.drop(1).firstOrNull { it.isNotBlank() && it.all(Char::isDigit) }
         return numeroTexto?.toIntOrNull()?.coerceIn(1, 999) ?: 1
     }
 
-    private fun extrairLogradouroENumero(linhas: List<String>): Pair<String, String> {
+    private fun extrairCidadeEUf(linhas: List<String>): Pair<String, String> {
+        for (linha in linhas) {
+            REGEX_CIDADE_UF_CEP.find(linha)?.let { match ->
+                val ufCandidata = match.groupValues[2].uppercase(Locale.ROOT)
+                if (ufCandidata in UFS_VALIDAS) return match.groupValues[1].trim() to ufCandidata
+            }
+        }
+        for (linha in linhas) {
+            REGEX_CIDADE_UF_COM_SEPARADOR.find(linha)?.let { match ->
+                val ufCandidata = match.groupValues[2].uppercase(Locale.ROOT)
+                if (ufCandidata in UFS_VALIDAS) return match.groupValues[1].trim().trimEnd(',') to ufCandidata
+            }
+        }
+        return "" to ""
+    }
+
+    private fun extrairLogradouroNumeroEBairro(linhas: List<String>): Triple<String, String, String> {
         val linhaLogradouro = linhas.firstOrNull { linha ->
             val inicio = linha.trim().lowercase(Locale.ROOT)
             PREFIXOS_LOGRADOURO.any { prefixo -> inicio.startsWith("$prefixo ") || inicio == prefixo }
         } ?: linhas.firstOrNull { it.any(Char::isLetter) } ?: ""
 
-        if (linhaLogradouro.isBlank()) return "" to ""
+        if (linhaLogradouro.isBlank()) return Triple("", "", "")
 
-        // Formatos comuns: "Rua Tal, 123", "Rua Tal 123", "Rua Tal Nº 123 - Bairro"
+        // Formatos: "Rua Tal, 123", "Rua Tal Nº 123", "Rua Tal 123 Bairro" (sem vírgula).
         val partesPorVirgula = linhaLogradouro.split(",")
-        var logradouro = partesPorVirgula.first().trim()
-        var numero = ""
-
         val matchLabel = REGEX_NUMERO_LABEL.find(linhaLogradouro)
-        if (matchLabel != null) {
-            numero = matchLabel.groupValues[1]
-        } else if (partesPorVirgula.size > 1) {
-            val restoAposVirgula = partesPorVirgula[1].trim()
-            val matchNumero = Regex("""^(\d+[a-zA-Z]?)""").find(restoAposVirgula)
-            if (matchNumero != null) numero = matchNumero.groupValues[1]
-        } else {
-            // Sem vírgula/rótulo: pega o primeiro número isolado que não seja o CEP.
-            val matchNumero = Regex("""\b(\d{1,5}[a-zA-Z]?)\b""").find(logradouro)
-            if (matchNumero != null && matchNumero.value.length < 5) {
-                numero = matchNumero.groupValues[1]
-                logradouro = logradouro.replace(matchNumero.value, "").trim().trimEnd(',', '-').trim()
-            }
-        }
 
-        return logradouro to numero
+        return when {
+            matchLabel != null -> Triple(partesPorVirgula.first().trim(), matchLabel.groupValues[1], "")
+            partesPorVirgula.size > 1 -> {
+                val restoAposVirgula = partesPorVirgula[1].trim()
+                val matchNumero = Regex("""^(\d+[a-zA-Z]?)""").find(restoAposVirgula)
+                val numero = matchNumero?.groupValues?.get(1) ?: ""
+                val bairro = matchNumero?.let { restoAposVirgula.removePrefix(it.value).trim().trimStart('-', ' ') } ?: ""
+                Triple(partesPorVirgula.first().trim(), numero, bairro)
+            }
+            else -> extrairNumeroEBairroTrailing(linhaLogradouro)
+        }
+    }
+
+    /**
+     * Linha sem vírgula nem rótulo "Nº": localiza o primeiro número isolado (o número da
+     * casa) e separa o texto em volta dele — o que vem antes é o nome da rua, o que sobra
+     * depois costuma ser o bairro (comum em etiquetas de remessa e telas de itinerário,
+     * ex.: "Rua Doutor Monte 1044 Centro").
+     */
+    private fun extrairNumeroEBairroTrailing(linha: String): Triple<String, String, String> {
+        val matchNumero = Regex("""\b(\d{1,5}[a-zA-Z]?)\b""").find(linha)
+        if (matchNumero == null || matchNumero.value.length >= 5) {
+            return Triple(linha.trim(), "", "")
+        }
+        val logradouro = linha.substring(0, matchNumero.range.first).trim().trimEnd(',', '-').trim()
+        val bairro = linha.substring(matchNumero.range.last + 1).trim().trimStart(',', '-').trim()
+        return Triple(logradouro, matchNumero.groupValues[1], bairro)
     }
 
     private fun inferirBairro(linhas: List<String>, logradouro: String, cidade: String): String {
