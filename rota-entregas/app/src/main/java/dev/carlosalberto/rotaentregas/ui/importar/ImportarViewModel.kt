@@ -71,7 +71,12 @@ class ImportarViewModel : ViewModel() {
                 _uiState.value = _uiState.value.copy(imagens = imagensAtualizadas.toList())
             }
 
-            val enderecosReconhecidos = imagensAtualizadas.flatMap { it.enderecos }
+            // Duas fotos diferentes (ou dois blocos na mesma lista/scan) podem trazer o
+            // mesmo endereço com pacotes diferentes — mescla em uma parada só, somando a
+            // quantidade, em vez de duplicar a parada no mapa e na rota.
+            val enderecosReconhecidos = AddressParser.mesclarPorEndereco(
+                imagensAtualizadas.flatMap { it.enderecos }
+            )
             if (enderecosReconhecidos.isNotEmpty()) {
                 paradaRepository.importarLote(enderecosReconhecidos)
             }

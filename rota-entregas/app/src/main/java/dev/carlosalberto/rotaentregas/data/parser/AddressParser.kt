@@ -254,6 +254,43 @@ object AddressParser {
         return Triple(logradouro, matchNumero.groupValues[1], bairro)
     }
 
+    /**
+     * Consolida entradas que são o MESMO endereço (mesma rua/número/cidade) em uma única
+     * parada, somando a quantidade de pacotes — é o caso da tela de escaneamento de
+     * pacotes, onde cada código de barras (TBR...) é 1 pacote, mas vários pacotes podem
+     * ser para a mesma parada. "Quantidade de pacotes" e "quantidade de paradas" são
+     * coisas diferentes: aqui é onde a segunda deixa de contar de mais por causa da
+     * primeira. Endereços sem rua identificada (faltando confirmação) nunca são mesclados
+     * entre si, para não juntar por engano duas leituras ruins e diferentes.
+     */
+    fun mesclarPorEndereco(enderecos: List<EnderecoReconhecido>): List<EnderecoReconhecido> {
+        val agrupados = LinkedHashMap<String, EnderecoReconhecido>()
+        enderecos.forEachIndexed { indice, endereco ->
+            val chave = chaveDeEndereco(endereco) ?: "sem-chave-$indice"
+            val existente = agrupados[chave]
+            agrupados[chave] = if (existente == null) {
+                endereco
+            } else {
+                existente.copy(
+                    quantidadePacotes = existente.quantidadePacotes + endereco.quantidadePacotes,
+                    bairro = existente.bairro.ifBlank { endereco.bairro },
+                    cidade = existente.cidade.ifBlank { endereco.cidade },
+                    uf = existente.uf.ifBlank { endereco.uf },
+                    cep = existente.cep.ifBlank { endereco.cep },
+                    complemento = existente.complemento.ifBlank { endereco.complemento },
+                    textoOcrBruto = existente.textoOcrBruto + "\n---\n" + endereco.textoOcrBruto
+                )
+            }
+        }
+        return agrupados.values.toList()
+    }
+
+    private fun chaveDeEndereco(endereco: EnderecoReconhecido): String? {
+        if (endereco.logradouro.isBlank()) return null
+        fun normalizar(s: String) = s.trim().lowercase(Locale.ROOT).replace(Regex("""\s+"""), " ")
+        return "${normalizar(endereco.logradouro)}|${normalizar(endereco.numero)}|${normalizar(endereco.cidade)}"
+    }
+
     private fun inferirBairro(linhas: List<String>, logradouro: String, cidade: String): String {
         if (logradouro.isBlank()) return ""
         val indiceLogradouro = linhas.indexOfFirst { it.contains(logradouro, ignoreCase = true) }
